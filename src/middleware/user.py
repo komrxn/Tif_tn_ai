@@ -29,4 +29,6 @@ class UserMiddleware(BaseMiddleware):
                 )
                 data["user"] = user
                 data["lang"] = user.get("language", "uz")
+                if user.get("is_blocked"):
+                    return None
         return await handler(event, data)

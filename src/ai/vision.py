@@ -47,4 +47,7 @@ async def describe_image(image_bytes: bytes, mime: str = "image/jpeg") -> str:
         ],
         max_tokens=300,
     )
-    return resp.choices[0].message.content or ""
+    usage = resp.usage
+    prompt_tokens = usage.prompt_tokens if usage else 0
+    completion_tokens = usage.completion_tokens if usage else 0
+    return resp.choices[0].message.content or "", prompt_tokens, completion_tokens

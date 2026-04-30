@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import time
+import traceback as tb_module
 
 from aiogram import Router
 from aiogram.types import Message
@@ -9,7 +10,7 @@ from aiogram.types import Message
 from src.ai.context import get_history, push_turn
 from src.ai.llm import classify
 from src.cards import save_card
-from src.db.repo import increment_daily_usage, log_query
+from src.db.repo import increment_daily_usage, log_error, log_query
 from src.errors import ClassificationError
 from src.rag.prompts import build_context
 from src.rag.retriever import retrieve
@@ -38,16 +39,26 @@ async def _do_classify(
     lang: Lang,
     history: list[tuple[str, str | None, str]],
 ) -> tuple:
-    """Run retrieve + classify, return (result, elapsed_ms)."""
+    """Run retrieve + classify, return (result, elapsed_ms, tokens_prompt, tokens_completion)."""
     hits = await retrieve(user_msg, top_k=8)
     context = await build_context(hits)
     t0 = time.monotonic()
-    result = await classify(user_msg, context, lang, history=history)
+    result, tokens_prompt, tokens_completion = await classify(
+        user_msg, context, lang, history=history
+    )
     elapsed_ms = int((time.monotonic() - t0) * 1000)
-    return result, elapsed_ms
+    return result, elapsed_ms, tokens_prompt, tokens_completion
 
 
-async def run_query(message: Message, query: str, user: dict, lang: Lang, prefix: str = "") -> None:
+async def run_query(
+    message: Message,
+    query: str,
+    user: dict,
+    lang: Lang,
+    prefix: str = "",
+    extra_tokens_prompt: int = 0,
+    audio_seconds: float | None = None,
+) -> None:
     chat_id = message.chat.id
     session = await get_session(chat_id)
 
@@ -73,11 +84,22 @@ async def run_query(message: Message, query: str, user: dict, lang: Lang, prefix
 
     try:
         history = await get_history(chat_id)
-        result, elapsed_ms = await _do_classify(message, full_user_msg, lang, history)
+        result, elapsed_ms, tokens_prompt, tokens_completion = await _do_classify(
+            message, full_user_msg, lang, history
+        )
+        tokens_prompt += extra_tokens_prompt
     except Exception as exc:
         stop.set()
         typing_task.cancel()
         logger.error("Classification failed", exc_info=True)
+        await log_error(
+            handler="query",
+            error_type=type(exc).__name__,
+            message=str(exc),
+            traceback=tb_module.format_exc(),
+            user_id=str(user["id"]) if user else None,
+            query_type="text",
+        )
         raise ClassificationError(str(exc)) from exc
     finally:
         stop.set()
@@ -116,6 +138,9 @@ async def run_query(message: Message, query: str, user: dict, lang: Lang, prefix
             result_name=result.name,
             confidence=result.confidence,
             response_time_ms=elapsed_ms,
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            audio_seconds=audio_seconds,
         )
 
     elif should_ask:
@@ -164,6 +189,9 @@ async def run_query(message: Message, query: str, user: dict, lang: Lang, prefix
             result_name=result.name if result.code else None,
             confidence=result.confidence,
             response_time_ms=elapsed_ms,
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            audio_seconds=audio_seconds,
         )
 
     await increment_daily_usage(str(user["id"]))

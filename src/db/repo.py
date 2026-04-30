@@ -76,18 +76,24 @@ async def log_query(
     result_name: str | None,
     confidence: float | None,
     response_time_ms: int,
+    tokens_prompt: int | None = None,
+    tokens_completion: int | None = None,
+    audio_seconds: float | None = None,
 ) -> None:
     db = await get_db()
     await db.query(
         """
         CREATE query_logs SET
-            user         = type::record($uid),
-            query_text   = $qt,
-            query_type   = $qtype,
-            result_code  = $code,
-            result_name  = $name,
-            confidence   = $conf,
-            response_time_ms = $ms
+            user             = type::record($uid),
+            query_text       = $qt,
+            query_type       = $qtype,
+            result_code      = $code,
+            result_name      = $name,
+            confidence       = $conf,
+            response_time_ms = $ms,
+            tokens_prompt    = $tp,
+            tokens_completion = $tc,
+            audio_seconds    = $as
         """,
         {
             "uid": user_id,
@@ -97,6 +103,47 @@ async def log_query(
             "name": result_name,
             "conf": confidence,
             "ms": response_time_ms,
+            "tp": tokens_prompt,
+            "tc": tokens_completion,
+            "as": audio_seconds,
+        },
+    )
+
+
+async def set_user_blocked(user_id: str, is_blocked: bool) -> None:
+    db = await get_db()
+    await db.query(
+        "UPDATE type::record($uid) SET is_blocked = $blocked",
+        {"uid": user_id, "blocked": is_blocked},
+    )
+
+
+async def log_error(
+    handler: str,
+    error_type: str,
+    message: str,
+    traceback: str | None = None,
+    user_id: str | None = None,
+    query_type: str | None = None,
+) -> None:
+    db = await get_db()
+    await db.query(
+        """
+        CREATE error_logs SET
+            user       = IF $uid != NONE THEN type::record($uid) ELSE NONE END,
+            handler    = $handler,
+            error_type = $etype,
+            message    = $msg,
+            traceback  = $tb,
+            query_type = $qtype
+        """,
+        {
+            "uid": user_id,
+            "handler": handler,
+            "etype": error_type,
+            "msg": message,
+            "tb": traceback,
+            "qtype": query_type,
         },
     )
 

@@ -66,3 +66,20 @@ DEFINE FIELD IF NOT EXISTS confidence      ON query_logs TYPE option<float>;
 DEFINE FIELD IF NOT EXISTS response_time_ms ON query_logs TYPE int;
 DEFINE FIELD IF NOT EXISTS created_at      ON query_logs TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_user_time   ON query_logs FIELDS user, created_at;
+DEFINE FIELD IF NOT EXISTS tokens_prompt     ON query_logs TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS tokens_completion ON query_logs TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS audio_seconds     ON query_logs TYPE option<float>;
+
+-- User blocking
+DEFINE FIELD IF NOT EXISTS is_blocked ON users TYPE bool DEFAULT false;
+
+-- Error logs
+DEFINE TABLE IF NOT EXISTS error_logs SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS user       ON error_logs TYPE option<record<users>>;
+DEFINE FIELD IF NOT EXISTS handler    ON error_logs TYPE string;
+DEFINE FIELD IF NOT EXISTS error_type ON error_logs TYPE string;
+DEFINE FIELD IF NOT EXISTS message    ON error_logs TYPE string;
+DEFINE FIELD IF NOT EXISTS traceback  ON error_logs TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS query_type ON error_logs TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON error_logs TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_err_time ON error_logs FIELDS created_at;

@@ -1,0 +1,3 @@
+GPT51_INPUT_PER_M: float = 2.00
+GPT51_OUTPUT_PER_M: float = 8.00
+WHISPER_PER_MIN: float = 0.006

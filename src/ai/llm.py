@@ -90,7 +90,10 @@ async def classify(
 
     raw = resp.choices[0].message.content
     logger.debug("LLM raw: %s", raw[:200])
-    return ClassifyResult.model_validate_json(raw)
+    usage = resp.usage
+    prompt_tokens = usage.prompt_tokens if usage else 0
+    completion_tokens = usage.completion_tokens if usage else 0
+    return ClassifyResult.model_validate_json(raw), prompt_tokens, completion_tokens
 
 
 _EXAMPLES_SYSTEM = (

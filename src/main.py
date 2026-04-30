@@ -1,12 +1,15 @@
 import asyncio
 import logging
+import traceback as tb_module
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import ErrorEvent
 
 from src.config import settings
 from src.db.client import close_db
+from src.db.repo import log_error
 from src.handlers import code_actions, help, history, photo, query, start, stats, unknown, voice
 from src.health import run_health_server
 from src.middleware.logging import LoggingMiddleware
@@ -20,12 +23,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _global_error_handler(event: ErrorEvent) -> None:
+    exc = event.exception
+    logger.error("Unhandled bot error", exc_info=exc)
+    await log_error(
+        handler="unhandled",
+        error_type=type(exc).__name__,
+        message=str(exc),
+        traceback=tb_module.format_exc(),
+    )
+
+
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
 
     dp.update.middleware(LoggingMiddleware())
     dp.update.middleware(UserMiddleware())
     dp.message.middleware(RateLimitMiddleware())
+    dp.errors.register(_global_error_handler)
 
     # Order matters: specific handlers before catch-all
     dp.include_router(start.router)
