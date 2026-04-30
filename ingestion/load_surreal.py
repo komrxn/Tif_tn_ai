@@ -32,7 +32,7 @@ async def _bulk_insert(db: AsyncSurreal, table: str, rows: list[dict]) -> None:
     inserted = 0
     for i in range(0, total, BATCH):
         batch = rows[i : i + BATCH]
-        await db.query(f"INSERT INTO {table} $rows", {"rows": batch})
+        await db.query(f"INSERT IGNORE INTO {table} $rows", {"rows": batch})
         inserted += len(batch)
         logger.info("  %s: %d / %d", table, inserted, total)
 
