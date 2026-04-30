@@ -65,59 +65,88 @@ aiogram handlers (query / photo / voice / code_actions / history)
 
 ## Данные
 
-| Источник | Формат | Назначение |
+Исходные файлы **не входят в репозиторий** (PDF, ~1 GB). Передавайте их на сервер через `rsync` или `scp`.
+
+| Файл / папка | Формат | Назначение |
 |---|---|---|
-| `TN-ved_rus.pdf` | PDF 194 стр. | Классификатор: 17 015 кодов с иерархией |
-| `Poyasneniya/*.pdf` | 2006 PDF-страниц | RAG-корпус: пояснительные примечания |
-| `Rules_tn_ved/*.pdf` | 9 PDF | 6 Общих правил интерпретации |
-| `ПК-181.md` | Markdown (узб. кириллица) | 1 833 ставки ввозных пошлин |
+| `data/TN-ved_rus.pdf` | PDF 194 стр. | Классификатор: 17 015 кодов с иерархией |
+| `data/Poyasneniya/*.pdf` | 2006 PDF-страниц | RAG-корпус: пояснительные примечания |
+| `data/Rules_tn_ved/*.pdf` | 9 PDF | 6 Общих правил интерпретации |
+| `data/ПК-181.md` | Markdown (узб. кириллица) | 1 833 ставки ввозных пошлин |
+
+После ingestion в `data/build/` появляются готовые JSON-файлы и кеш эмбеддингов —  
+повторный запуск пропускает уже выполненные шаги.
 
 ---
 
-## Быстрый старт
+## Деплой на сервер
 
-### 1. Переменные окружения
+### Первый запуск (новый сервер)
 
-Создайте `tnved-bot/.env`:
+```bash
+# 1. Клонировать код
+git clone https://github.com/komrxn/Tif_tn_ai.git
+cd Tif_tn_ai
+
+# 2. Скопировать исходные данные (с локальной машины)
+rsync -av --progress \
+  TN-ved_rus.pdf ПК-181.md Poyasneniya/ Rules_tn_ved/ \
+  user@your-server:/path/to/Tif_tn_ai/data/
+
+# 3. Создать .env (пример ниже)
+cp .env.example .env && nano .env
+
+# 4. Поднять БД и запустить ingestion (внутри Docker — нет проблем с зависимостями)
+docker compose up -d surrealdb
+docker compose --profile ingest run --rm ingestion
+
+# 5. Запустить бот
+docker compose up -d bot
+```
+
+Проверка:
+```bash
+curl http://localhost:8080/health
+docker compose logs -f bot
+```
+
+### Обновление кода (повседневно)
+
+```bash
+git pull
+docker compose build bot && docker compose up -d bot
+```
+
+Данные в SurrealDB сохраняются в именованном volume — пересоздавать не нужно.
+
+### Переналить данные (если изменились источники)
+
+```bash
+docker compose up -d surrealdb
+docker compose --profile ingest run --rm ingestion
+docker compose restart bot
+```
+
+---
+
+## Переменные окружения
+
+Создайте `.env` в корне проекта:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_token
 OPENAI_API_KEY=sk-...
 ADMIN_TELEGRAM_ID=123456789
+
+# значения по умолчанию — менять не нужно при Docker Compose
 SURREAL_URL=ws://surrealdb:8000/rpc
 SURREAL_USER=root
 SURREAL_PASS=root
 SURREAL_NS=tnved
 SURREAL_DB=main
 REDIS_URL=redis://redis:6379
-```
 
-### 2. Подготовить данные
-
-```bash
-cd tnved-bot
-uv run python -m ingestion.run_all
-```
-
-Это последовательно:
-1. Парсит `TN-ved_rus.pdf` → 17 015 кодов
-2. Парсит `ПК-181.md` → 1 833 пошлины
-3. Загружает правила ОПИ
-4. Парсит `Poyasneniya/*.pdf` → 2 005 чанков
-5. Делает эмбеддинги через OpenAI (кеш на диске)
-6. Загружает всё в SurrealDB
-
-Повторный запуск идемпотентен — пропускает уже готовые шаги.
-
-### 3. Запустить
-
-```bash
-docker compose up -d --build
-```
-
-Проверка:
-```bash
-curl http://localhost:8080/health
+LOG_LEVEL=INFO
 ```
 
 ---
@@ -125,16 +154,16 @@ curl http://localhost:8080/health
 ## Структура проекта
 
 ```
-tnved-bot/
+.
 ├── src/
 │   ├── main.py              # точка входа, сборка dispatcher
 │   ├── config.py            # pydantic-settings (.env)
-│   ├── session.py           # Redis: состояние диалога
+│   ├── session.py           # Redis: состояние диалога (TTL 30 мин)
 │   ├── cards.py             # Redis: последние 10 карточек результатов
 │   ├── health.py            # HTTP /health на порту 8080
 │   ├── ai/
 │   │   ├── llm.py           # classify(), list_examples()
-│   │   ├── context.py       # Redis: история чата (3 хода)
+│   │   ├── context.py       # Redis: история чата (3 хода, TTL 1 ч)
 │   │   └── embeddings.py    # OpenAI embeddings
 │   ├── db/
 │   │   ├── client.py        # SurrealDB singleton
@@ -159,30 +188,25 @@ tnved-bot/
 │   ├── locales/             # ru.json, uz.json, en.json
 │   └── prompts/
 │       ├── system_base.md   # системный промпт классификатора
-│       └── output_schema.json # JSON schema для structured output
+│       └── output_schema.json
 ├── ingestion/
-│   ├── run_all.py           # запуск всего пайплайна
-│   ├── parse_classifier.py  # PDF → коды
-│   ├── parse_duties.py      # MD → пошлины
-│   ├── parse_explanations.py # PDF → чанки
-│   ├── embed.py             # эмбеддинги + кеш
-│   └── load_surreal.py      # загрузка в БД
+│   ├── run_all.py           # оркестратор всего пайплайна
+│   ├── parse_classifier.py  # TN-ved_rus.pdf → 17 015 кодов
+│   ├── parse_duties.py      # ПК-181.md → 1 833 пошлины
+│   ├── parse_explanations.py # Poyasneniya/*.pdf → 2 005 чанков
+│   ├── embed.py             # эмбеддинги + SHA256-кеш на диске
+│   └── load_surreal.py      # загрузка в SurrealDB пакетами по 500
 ├── tests/
-│   ├── test_parse_classifier.py
-│   ├── test_parse_duties.py
-│   ├── test_retriever.py
-│   └── golden_set.py
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml       # surrealdb + redis + bot + ingestion (profile)
 └── pyproject.toml
 ```
 
 ---
 
-## Разработка
+## Разработка локально
 
 ```bash
-# установить зависимости
 uv sync
 
 # линтер + форматер

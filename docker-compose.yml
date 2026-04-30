@@ -25,6 +25,20 @@ services:
       timeout: 3s
       retries: 5
 
+  ingestion:
+    build: .
+    env_file: .env
+    environment:
+      SURREAL_URL: ws://surrealdb:8000/rpc
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+    command: ["uv", "run", "python", "-m", "ingestion.run_all"]
+    profiles:
+      - ingest
+
   bot:
     build: .
     env_file: .env
