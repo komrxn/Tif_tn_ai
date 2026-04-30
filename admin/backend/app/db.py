@@ -1,15 +1,17 @@
+from __future__ import annotations
+
 import logging
 
-from surrealdb import AsyncSurreal
+from surrealdb import AsyncSurreal, AsyncWsSurrealConnection
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_db: AsyncSurreal | None = None
+_db: AsyncWsSurrealConnection | None = None
 
 
-async def get_db() -> AsyncSurreal:
+async def get_db() -> AsyncWsSurrealConnection:
     global _db
     if _db is None:
         raise RuntimeError("DB not initialized — call connect_db() first")
@@ -18,11 +20,12 @@ async def get_db() -> AsyncSurreal:
 
 async def connect_db() -> None:
     global _db
-    _db = AsyncSurreal(settings.surreal_url)
-    await _db.connect()
-    await _db.signin({"username": settings.surreal_user, "password": settings.surreal_pass})
-    await _db.use(settings.surreal_ns, settings.surreal_db)
-    logger.info("Admin DB connected")
+    conn = AsyncSurreal(settings.surreal_url)
+    await conn.connect()
+    await conn.signin({"username": settings.surreal_user, "password": settings.surreal_pass})
+    await conn.use(settings.surreal_ns, settings.surreal_db)
+    _db = conn
+    logger.info("Admin DB connected to %s", settings.surreal_url)
 
 
 async def close_db() -> None:
