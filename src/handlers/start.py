@@ -25,7 +25,11 @@ async def handle_start(message: Message, user: dict, lang: Lang) -> None:
         )
 
 
+_LANGUAGE_LABELS = {"⚙️ Язык", "⚙️ Til", "⚙️ Language"}
+
+
 @router.message(Command("language"))
+@router.message(lambda m: m.text and m.text in _LANGUAGE_LABELS)
 async def handle_language_cmd(message: Message, lang: Lang) -> None:
     await message.answer(t(lang, "start_welcome_new"), reply_markup=language_keyboard())
 
