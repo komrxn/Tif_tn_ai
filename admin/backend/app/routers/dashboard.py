@@ -1,9 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.auth import get_current_admin
 from app.db import get_db
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
@@ -23,11 +26,13 @@ class DashboardStats(BaseModel):
 async def get_stats(_: str = Depends(get_current_admin)) -> DashboardStats:
     db = await get_db()
 
-    users_row = await db.query(
-        "SELECT count() AS total, count(is_blocked = true) AS blocked FROM users GROUP ALL"
+    total_rows = await db.query("SELECT count() AS cnt FROM users GROUP ALL")
+    total_users = total_rows[0]["cnt"] if total_rows else 0
+
+    blocked_rows = await db.query(
+        "SELECT count() AS cnt FROM users WHERE is_blocked = true GROUP ALL"
     )
-    total_users = users_row[0]["total"] if users_row else 0
-    blocked_users = users_row[0]["blocked"] if users_row else 0
+    blocked_users = blocked_rows[0]["cnt"] if blocked_rows else 0
 
     today_rows = await db.query(
         "SELECT count() AS cnt FROM query_logs WHERE created_at > time::now() - 1d GROUP ALL"
@@ -37,7 +42,9 @@ async def get_stats(_: str = Depends(get_current_admin)) -> DashboardStats:
     all_rows = await db.query("SELECT count() AS cnt FROM query_logs GROUP ALL")
     total_queries_all = all_rows[0]["cnt"] if all_rows else 0
 
-    avg_rows = await db.query("SELECT math::mean(response_time_ms) AS avg FROM query_logs GROUP ALL")
+    avg_rows = await db.query(
+        "SELECT math::mean(response_time_ms) AS avg FROM query_logs GROUP ALL"
+    )
     avg_response_ms = int(avg_rows[0]["avg"] or 0) if avg_rows else 0
 
     type_rows = await db.query(
@@ -58,10 +65,15 @@ async def get_stats(_: str = Depends(get_current_admin)) -> DashboardStats:
     )
     failed_count = fail_rows[0]["cnt"] if fail_rows else 0
 
-    err_rows = await db.query(
-        "SELECT count() AS cnt FROM error_logs WHERE created_at > time::now() - 1d GROUP ALL"
-    )
-    errors_today = err_rows[0]["cnt"] if err_rows else 0
+    errors_today = 0
+    try:
+        err_rows = await db.query(
+            "SELECT count() AS cnt FROM error_logs"
+            " WHERE created_at > time::now() - 1d GROUP ALL"
+        )
+        errors_today = err_rows[0]["cnt"] if err_rows else 0
+    except Exception:
+        logger.debug("error_logs table not yet created")
 
     return DashboardStats(
         total_users=total_users,

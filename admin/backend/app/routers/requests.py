@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth import get_current_admin
@@ -33,8 +33,10 @@ def _serialize(row: dict) -> RequestOut:
     user = row.get("user") or {}
     if isinstance(user, str):
         user = {}
+    raw_id = str(row["id"])
+    id_part = raw_id.split(":", 1)[-1] if ":" in raw_id else raw_id
     return RequestOut(
-        id=str(row["id"]),
+        id=id_part,
         user_id=str(row.get("user", "")),
         telegram_id=user.get("telegram_id"),
         username=user.get("username"),
@@ -96,8 +98,7 @@ async def list_low_confidence(
     limit: int = 50,
     _: str = Depends(get_current_admin),
 ) -> RequestPage:
-    where = "WHERE confidence != NONE AND confidence < 0.7"
-    return await _fetch_requests(where, {}, page, limit)
+    return await _fetch_requests("WHERE confidence != NONE AND confidence < 0.7", {}, page, limit)
 
 
 @router.get("/failed", response_model=RequestPage)
@@ -107,3 +108,18 @@ async def list_failed(
     _: str = Depends(get_current_admin),
 ) -> RequestPage:
     return await _fetch_requests("WHERE result_code = NONE", {}, page, limit)
+
+
+@router.get("/{request_id}", response_model=RequestOut)
+async def get_request(
+    request_id: str,
+    _: str = Depends(get_current_admin),
+) -> RequestOut:
+    db = await get_db()
+    rows = await db.query(
+        "SELECT *, user.* FROM query_logs WHERE record::id(id) = $rid LIMIT 1",
+        {"rid": request_id},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return _serialize(rows[0])

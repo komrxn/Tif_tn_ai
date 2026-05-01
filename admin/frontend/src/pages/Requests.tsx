@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getRequests } from '../api/requests'
+import { getRequest, getRequests } from '../api/requests'
 import ConfidenceBadge from '../components/ConfidenceBadge'
 import DataTable, { type Column } from '../components/DataTable'
 import type { Request } from '../types'
@@ -15,15 +15,163 @@ const TYPE_LABELS: Record<RequestType, string> = {
   failed: 'Failed',
 }
 
+const TYPE_ICONS: Record<string, string> = {
+  text: '💬',
+  photo: '🖼',
+  voice: '🎤',
+}
+
 interface Props {
   defaultType?: RequestType
+}
+
+function RequestDrawer({
+  id,
+  onClose,
+}: {
+  id: string
+  onClose: () => void
+}) {
+  const [detail, setDetail] = useState<Request | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    setDetail(null)
+    getRequest(id)
+      .then(setDetail)
+      .finally(() => setLoading(false))
+  }, [id])
+
+  return (
+    <>
+      <div className="drawer-overlay" onClick={onClose} />
+      <div className="drawer">
+        <div className="drawer-header">
+          <h3>Request Detail</h3>
+          <button className="drawer-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="drawer-body">
+          {loading && <div className="page-loading">Loading…</div>}
+          {!loading && !detail && <div className="page-loading">Not found</div>}
+          {detail && (
+            <>
+              <div className="detail-field">
+                <span className="detail-label">User Input</span>
+                <div className="detail-value">{detail.query_text}</div>
+              </div>
+
+              <div className="detail-row">
+                <div className="detail-field">
+                  <span className="detail-label">Type</span>
+                  <div className="detail-value">
+                    {TYPE_ICONS[detail.query_type] ?? ''} {detail.query_type}
+                  </div>
+                </div>
+                <div className="detail-field">
+                  <span className="detail-label">Time</span>
+                  <div className="detail-value">
+                    {new Date(detail.created_at).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              <hr className="detail-divider" />
+
+              {detail.result_code ? (
+                <>
+                  <div className="detail-field">
+                    <span className="detail-label">Result Code</span>
+                    <div className="detail-value mono">{detail.result_code}</div>
+                  </div>
+                  <div className="detail-field">
+                    <span className="detail-label">Result Name</span>
+                    <div className="detail-value">{detail.result_name ?? '—'}</div>
+                  </div>
+                  <div className="detail-row">
+                    <div className="detail-field">
+                      <span className="detail-label">Confidence</span>
+                      <div className="detail-value">
+                        <ConfidenceBadge value={detail.confidence} />
+                        {detail.confidence != null && (
+                          <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontSize: 12 }}>
+                            ({(detail.confidence * 100).toFixed(1)}%)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="detail-field">
+                      <span className="detail-label">Response time</span>
+                      <div className="detail-value">{detail.response_time_ms} ms</div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="detail-field">
+                  <span className="detail-label">Result</span>
+                  <div className="detail-value" style={{ color: 'var(--danger)' }}>
+                    Classification failed — no code returned
+                  </div>
+                </div>
+              )}
+
+              <hr className="detail-divider" />
+
+              <div className="detail-row">
+                <div className="detail-field">
+                  <span className="detail-label">Tokens (prompt)</span>
+                  <div className="detail-value">
+                    {detail.tokens_prompt != null ? detail.tokens_prompt.toLocaleString() : '—'}
+                  </div>
+                </div>
+                <div className="detail-field">
+                  <span className="detail-label">Tokens (completion)</span>
+                  <div className="detail-value">
+                    {detail.tokens_completion != null
+                      ? detail.tokens_completion.toLocaleString()
+                      : '—'}
+                  </div>
+                </div>
+              </div>
+
+              {detail.audio_seconds != null && (
+                <div className="detail-field">
+                  <span className="detail-label">Audio duration</span>
+                  <div className="detail-value">{detail.audio_seconds.toFixed(1)} s</div>
+                </div>
+              )}
+
+              <hr className="detail-divider" />
+
+              <div className="detail-row">
+                <div className="detail-field">
+                  <span className="detail-label">Telegram ID</span>
+                  <div className="detail-value mono">
+                    {detail.telegram_id ?? '—'}
+                  </div>
+                </div>
+                <div className="detail-field">
+                  <span className="detail-label">Username</span>
+                  <div className="detail-value">
+                    {detail.username ? `@${detail.username}` : '—'}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  )
 }
 
 export default function Requests({ defaultType = 'all' }: Props) {
   const [page, setPage] = useState(1)
   const [data, setData] = useState<{ total: number; items: Request[] }>({ total: 0, items: [] })
   const [loading, setLoading] = useState(false)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     setPage(1)
@@ -55,20 +203,17 @@ export default function Requests({ defaultType = 'all' }: Props) {
           '—'
         ),
     },
-    { key: 'query_type', label: 'Type' },
+    {
+      key: 'query_type',
+      label: 'Type',
+      render: (r) => `${TYPE_ICONS[r.query_type] ?? ''} ${r.query_type}`,
+    },
     {
       key: 'query_text',
       label: 'Query',
       render: (r) => (
-        <span
-          className="query-text"
-          title={r.query_text}
-          onClick={() => setExpanded(expanded === r.id ? null : r.id)}
-          style={{ cursor: 'pointer' }}
-        >
-          {expanded === r.id
-            ? r.query_text
-            : r.query_text.slice(0, 60) + (r.query_text.length > 60 ? '…' : '')}
+        <span className="query-text" title={r.query_text}>
+          {r.query_text.slice(0, 60) + (r.query_text.length > 60 ? '…' : '')}
         </span>
       ),
     },
@@ -80,7 +225,7 @@ export default function Requests({ defaultType = 'all' }: Props) {
     },
     {
       key: 'response_time_ms',
-      label: 'Time (ms)',
+      label: 'ms',
       render: (r) => String(r.response_time_ms),
     },
     {
@@ -102,7 +247,12 @@ export default function Requests({ defaultType = 'all' }: Props) {
         limit={50}
         onPageChange={setPage}
         loading={loading}
+        onRowClick={(r) => setSelectedId(r.id)}
+        rowClassName={() => 'row-clickable'}
       />
+      {selectedId && (
+        <RequestDrawer id={selectedId} onClose={() => setSelectedId(null)} />
+      )}
     </div>
   )
 }

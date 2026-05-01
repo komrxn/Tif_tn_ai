@@ -16,6 +16,8 @@ interface Props<T> {
   onPageChange: (p: number) => void
   loading: boolean
   keyField?: keyof T
+  onRowClick?: (row: T) => void
+  rowClassName?: (row: T) => string
 }
 
 export default function DataTable<T extends { id: string }>({
@@ -27,6 +29,8 @@ export default function DataTable<T extends { id: string }>({
   onPageChange,
   loading,
   keyField = 'id' as keyof T,
+  onRowClick,
+  rowClassName,
 }: Props<T>) {
   const totalPages = Math.ceil(total / limit)
 
@@ -43,7 +47,11 @@ export default function DataTable<T extends { id: string }>({
         </thead>
         <tbody>
           {data.map((row) => (
-            <tr key={String(row[keyField])}>
+            <tr
+              key={String(row[keyField])}
+              className={rowClassName ? rowClassName(row) : undefined}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               {columns.map((c) => (
                 <td key={c.key}>
                   {c.render

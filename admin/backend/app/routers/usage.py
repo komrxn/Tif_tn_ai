@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -57,17 +59,18 @@ async def get_traffic(
     _: str = Depends(get_current_admin),
 ) -> TrafficResponse:
     db = await get_db()
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
     rows = await db.query(
         """
         SELECT
-            string::slice(string(created_at), 0, 10) AS date,
+            time::format(created_at, "%Y-%m-%d") AS date,
             count() AS count
         FROM query_logs
-        WHERE created_at > time::now() - type::duration(string($days) + 'd')
+        WHERE created_at > $cutoff
         GROUP BY date
         ORDER BY date ASC
         """,
-        {"days": days},
+        {"cutoff": cutoff},
     )
     data = [TrafficPoint(date=r["date"], count=r["count"]) for r in (rows or [])]
     return TrafficResponse(data=data)
@@ -79,19 +82,20 @@ async def get_costs(
     _: str = Depends(get_current_admin),
 ) -> CostResponse:
     db = await get_db()
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
     rows = await db.query(
         """
         SELECT
-            string::slice(string(created_at), 0, 10) AS date,
+            time::format(created_at, "%Y-%m-%d") AS date,
             math::sum(tokens_prompt ?? 0)     AS prompt_tokens,
             math::sum(tokens_completion ?? 0) AS completion_tokens,
             math::sum(audio_seconds ?? 0)     AS audio_secs
         FROM query_logs
-        WHERE created_at > time::now() - type::duration(string($days) + 'd')
+        WHERE created_at > $cutoff
         GROUP BY date
         ORDER BY date ASC
         """,
-        {"days": days},
+        {"cutoff": cutoff},
     )
 
     total_prompt = sum(r["prompt_tokens"] for r in (rows or []))

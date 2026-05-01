@@ -1,4 +1,4 @@
-import type { RequestPage } from '../types'
+import type { Request, RequestPage } from '../types'
 import api from './client'
 
 export async function getRequests(params: {
@@ -7,5 +7,10 @@ export async function getRequests(params: {
   type?: string
 }): Promise<RequestPage> {
   const res = await api.get<RequestPage>('/requests', { params })
+  return res.data
+}
+
+export async function getRequest(id: string): Promise<Request> {
+  const res = await api.get<Request>(`/requests/${id}`)
   return res.data
 }
